@@ -1,8 +1,8 @@
 # `ssh-agent` GitHub Action
 
-This action 
-* starts the `ssh-agent`, 
-* exports the `SSH_AUTH_SOCK` environment variable, 
+This action
+* starts the `ssh-agent`,
+* exports the `SSH_AUTH_SOCK` environment variable,
 * loads a private SSH key into the agent and
 * configures `known_hosts` for GitHub.com.
 
@@ -17,7 +17,7 @@ GitHub Actions only have access to the repository they run for. So, in order to 
 1. Create an SSH key with sufficient access privileges. For security reasons, don't use your personal SSH key but set up a dedicated one for use in GitHub Actions. See below for a few hints if you are unsure about this step.
 2. Make sure you don't have a passphrase set on the private key.
 3. In your repository, go to the *Settings > Secrets* menu and create a new secret. In this example, we'll call it `SSH_PRIVATE_KEY`. Put the contents of the *private* SSH key file into the contents field. <br>
-  This key should start with `-----BEGIN ... PRIVATE KEY-----`, consist of many lines and ends with `-----END ... PRIVATE KEY-----`. 
+  This key should start with `-----BEGIN ... PRIVATE KEY-----`, consist of many lines and ends with `-----END ... PRIVATE KEY-----`.
 4. In your workflow definition file, add the following step. Preferably this would be rather on top, near the `actions/checkout@v1` line.
 
 ```yaml
@@ -27,9 +27,9 @@ jobs:
         ...
         steps:
             - actions/checkout@v1
-            # Make sure the @v0.4.0 matches the current version of the
-            # action 
-            - uses: webfactory/ssh-agent@v0.4.0
+            # Make sure the @v0.4.1 matches the current version of the
+            # action
+            - uses: webfactory/ssh-agent@v0.4.1
               with:
                   ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
             - ... other steps
@@ -38,13 +38,13 @@ jobs:
 
 ### Using multiple keys
 
-There are cases where you might need to use multiple keys. For example, "deployment keys" might be limited to a single repository each.
+There are cases where you might need to use multiple keys. For example, "[deploy keys](https://docs.github.com/en/developers/overview/managing-deploy-keys#deploy-keys)" might be limited to a single repository, so you'll need several of them.
 
-In that case, you can set-up the different keys as multiple secrets and pass them all to the action like so:
+You can set up different keys as different secrets and pass them all to the action like so:
 
 ```yaml
 # ... contens as before
-            - uses: webfactory/ssh-agent@v0.4.0
+            - uses: webfactory/ssh-agent@v0.4.1
               with:
                   ssh-private-key: |
                         ${{ secrets.FIRST_KEY }}
@@ -63,7 +63,28 @@ Optionally, `repo-mappings` provides a list of git repos that correlate to the k
 These mappings are used to generate git config `insteadOf` entries to psuedo hostnames, where the pseudo hostnames are each assigned the associated `ssh-private-key`. See the [Repo Mappings](#repo-mappings) section for details on how this works.
 
 There's one **caveat**, though, if you're not using `repo-mappings`: SSH servers may abort the connection attempt after a number of mismatching keys have been presented. So if, for example, you have
-six different keys loaded into the `ssh-agent`, but the server aborts after five unknown keys, the last key (which might be the right one) will never even be tried. If you don't need all of the keys at the same time, you could try to `run: kill $SSH_AGENT_PID` to kill the currently running `ssh-agent` and use the action again in a following step to start another instance.
+six different keys loaded into the `ssh-agent`, but the server aborts after five unknown keys, the last key (which might be the right one) will never even be tried.
+
+Also, when using **Github deploy keys**, GitHub servers will accept the first known key. But since deploy keys are scoped to a single repository, you might get the error message `fatal: Could not read from remote repository. Please make sure you have the correct access rights and the repository exists.` if the wrong key/repository combination is tried.
+
+In both cases, you might want to [try a wrapper script around `ssh`](https://gist.github.com/mpdude/e56fcae5bc541b95187fa764aafb5e6d) that can pick the right key, based on key comments. See [our blog post](https://www.webfactory.de/blog/using-multiple-ssh-deploy-keys-with-github) for the full story.
+
+### Dropping the http.extraHeader added by actions/checkout@v2
+If you are using (actions/checkout@v2)[], it adds an `AUTHORIZATION: basic ${GITHUB_TOKEN}` header to all git calls. This header can conflict with the `repo-mappings` in some apps (like `go get`). If you are having issues, try setting this option to `true`.
+```yaml
+# ... contens as before
+            - uses: webfactory/ssh-agent@v0.4.0
+              with:
+                  ssh-private-key: |
+                        ${{ secrets.FIRST_KEY }}
+                        ${{ secrets.NEXT_KEY }}
+                        ${{ secrets.ANOTHER_KEY }}
+                  repo-mappings: |
+                        github.com/OWNERX/REPO1
+                        bitbucket.com/OWNERY/REPO2
+                        github.com/OWNERX/REPO3
+                  drop-extra-header: true
+```
 
 ### Dropping the http.extraHeader added by actions/checkout@v2
 If you are using (actions/checkout@v2)[], it adds an `AUTHORIZATION: basic ${GITHUB_TOKEN}` header to all git calls. This header can conflict with the `repo-mappings` in some apps (like `go get`). If you are having issues, try setting this option to `true`.
@@ -91,7 +112,7 @@ The `$SSH_AGENT_PID` contains the process id of the agent. This is used to kill 
 
 ### Currently OS X and Linux only
 
-This action has not been tested for the Windows virtual environment. If you can provide the steps necessary to setup (even install?) OpenSSH on the Windows machine, please open an issue. 
+This action has not been tested for the Windows virtual environment. If you can provide the steps necessary to setup (even install?) OpenSSH on the Windows machine, please open an issue.
 
 ### Works for the current job only
 
@@ -119,15 +140,15 @@ This Action is designed to pass the SSH key directly into `ssh-agent`; that is, 
 
 If you want to use `ssh-keyscan` to add additional hosts (that you own/know) to the `known_hosts` file, you can do so with a single shell line in your Action definition. You don't really need this Action to do this for you.
 
-As a side note, using `ssh-keyscan` without proper key verification is susceptible to man-in-the-middle attacks. You might prefer putting your _known_ SSH host key in your own Action files to add it to the `known_hosts` file. The SSH host key is not secret and can safely be committed into the repo. 
+As a side note, using `ssh-keyscan` without proper key verification is susceptible to man-in-the-middle attacks. You might prefer putting your _known_ SSH host key in your own Action files to add it to the `known_hosts` file. The SSH host key is not secret and can safely be committed into the repo.
 
 ## Creating SSH keys
 
-In order to create a new SSH key, run `ssh-keygen -t ed25519 -a 100 -f path/to/keyfile`, as suggested in [this blog post](https://stribika.github.io/2015/01/04/secure-secure-shell.html). 
+In order to create a new SSH key, run `ssh-keygen -t ed25519 -a 100 -f path/to/keyfile`, as suggested in [this blog post](https://stribika.github.io/2015/01/04/secure-secure-shell.html).
 If you need to work with some older server software and need RSA keys, tr `ssh-keygen -t rsa -b 4096 -o -f path/to/keyfile` instead.
 
 Both commands will prompt you for a key passphrase and save the key in `path/to/keyfile`.
-In general, having a passphrase is a good thing, since it will keep the key encrypted on your disk. When using the key with this action, however, you need to make sure you don't 
+In general, having a passphrase is a good thing, since it will keep the key encrypted on your disk. When using the key with this action, however, you need to make sure you don't
 specify a passphrase: The key must be usable without reading the passphrase from input. Since the key itself is stored using GitHub's "Secret" feature, it should be fairly safe anyway.
 
 ## Authorizing a key
@@ -230,8 +251,8 @@ As a note to my future self, in order to work on this repo:
 ## Credits, Copyright and License
 
 This action was written by webfactory GmbH, Bonn, Germany. We're a software development
-agency with a focus on PHP (mostly [Symfony](http://github.com/symfony/symfony)). If you're a 
-developer looking for new challenges, we'd like to hear from you! 
+agency with a focus on PHP (mostly [Symfony](http://github.com/symfony/symfony)). If you're a
+developer looking for new challenges, we'd like to hear from you!
 
 - <https://www.webfactory.de>
 - <https://twitter.com/webfactory>
